@@ -94,7 +94,7 @@ test('reconcile: running session with live tmux is re-adopted', (t) => {
 })
 
 test('reconcile: finished worker (dead tmux, result in jsonl) is completed with usage', () => {
-  const { dir, db, cfg } = setup()
+  const { db, cfg } = setup()
   const ts = new Date().toISOString()
   db.prepare(
     "INSERT INTO sessions (id, subject_id, driver, claude_session_id, tmux_name, created_at, updated_at) VALUES ('sess3', 'subj1', 'claude-code', 'sess3', 'fleet-gone', ?, ?)",
