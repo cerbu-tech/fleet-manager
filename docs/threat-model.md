@@ -1,15 +1,34 @@
-# Threat model — skeleton
+# Threat model
 
-To be filled in as milestones land. The honest boundaries, stated up front:
+The honest boundaries, stated up front:
 
 ## What actually contains an agent
 
 - **Mechanical guarantees only**: branch protection on target repos, deploy keys
-  without push to protected branches, push/PR allowlists per subject (policy engine,
-  M1). These hold even when the agent is wrong or manipulated.
+  without push to protected branches, push/PR allowlists per subject. These hold
+  even when the agent is wrong or manipulated.
 - **Not a barrier**: tool restrictions in headless CLI sessions. `Bash` is built in;
   an agent that can run shell commands on a node sees what that node's user sees.
   Config-level tool filtering is context hygiene, not security.
+
+## Layers, in order of trust (M1)
+
+1. **Policy engine** (`config.yaml`) — first line, not a guarantee. Explicit auto
+   verdicts only: worker spawns within the daily budget, artifact publishes to
+   allowlisted repos on unprotected branches. Everything else — closure,
+   clarification, protected-branch targets, repos outside the allowlist, any new
+   action type — stays a pending decision for a human. Every escalation is a row in
+   `decisions`; policy approvals are marked `resolved_by = 'policy'`.
+2. **Mechanical anchoring** (GitHub/remote side) — the guarantee that holds when the
+   agent is wrong: branch protection on `main` of every target repo (direct pushes
+   rejected server-side), and — on restricted setups — deploy keys that cannot push
+   protected branches. The policy engine failing does NOT expose `main`: the remote
+   rejects the push regardless of what the manager or a worker tries.
+
+The negative e2e test (`src/test/publish.test.ts`) exercises layer 1: a scripted
+publish targeting `main` stays a pending decisions row and nothing is pushed. Layer 2
+must be configured per target repo (documented in the README of the target hub);
+verify it by pushing to `main` directly — the remote must reject it.
 
 ## Trust model (v1)
 

@@ -11,6 +11,7 @@ command -v tmux >/dev/null || { echo "tmux not found"; exit 1; }
 command -v git >/dev/null || { echo "git not found"; exit 1; }
 command -v claude >/dev/null || { echo "claude CLI not found — install Claude Code and run 'claude auth login'"; exit 1; }
 command -v openssl >/dev/null || { echo "openssl not found (needed to generate the API token)"; exit 1; }
+command -v gitleaks >/dev/null || { echo "gitleaks not found — install it (e.g. 'brew install gitleaks' or your distro package)"; exit 1; }
 
 echo "== building"
 npm ci

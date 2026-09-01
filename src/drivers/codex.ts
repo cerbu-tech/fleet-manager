@@ -16,29 +16,31 @@ import {
   tmuxAlive,
 } from './workspace.js'
 
-export { ensureClone, sessionJsonl, subjectDir, tmuxAlive } from './workspace.js'
+// Codex driver (M1.4, S0.3 PASS): same one-shot + resume model as claude-code.
+// The agent session id (thread_id) is only known from the output stream — the
+// sessions row starts with '' and the scheduler fills it in from thread.started.
 
-export function createClaudeCodeDriver(cfg: Config, db: DatabaseSync): Driver {
+export function createCodexDriver(cfg: Config, db: DatabaseSync): Driver {
   const runHeadless = (subject: SubjectRow, session: SessionRow, prompt: string, resume: boolean) => {
     const dir = join(subjectDir(cfg, subject.id), 'sessions')
     const worktree = join(dir, session.id)
     const promptFile = join(dir, `${session.id}.prompt`)
     const jsonl = sessionJsonl(cfg, subject, session.id)
     writeFileSync(promptFile, prompt)
-    const claude = resume
-      ? `claude -p --resume ${session.claude_session_id}`
-      : `claude -p --session-id ${session.claude_session_id}`
+    // `-` reads the prompt from stdin; --sandbox exists only on exec, resume inherits it (S0.3).
+    const codex = resume
+      ? `codex exec resume ${session.claude_session_id} --json`
+      : `codex exec --json --sandbox workspace-write`
     const cmd =
-      `cd ${sh(worktree)} && ${claude} --output-format stream-json --verbose ` +
-      `--permission-mode acceptEdits < ${sh(promptFile)} >> ${sh(jsonl)} 2>> ${sh(jsonl + '.err')}`
+      `cd ${sh(worktree)} && ${codex} - < ${sh(promptFile)} >> ${sh(jsonl)} 2>> ${sh(jsonl + '.err')}`
     tmux('new-session', '-d', '-s', session.tmux_name, cmd)
   }
 
   return {
-    name: 'claude-code',
+    name: 'codex',
 
     start(subject, prompt) {
-      const session = provisionSession(cfg, db, subject, 'claude-code')
+      const session = provisionSession(cfg, db, subject, 'codex', '')
       runHeadless(subject, session, prompt, false)
       addEvent(db, subject.id, 'worker_started', { tmux: session.tmux_name, prompt }, session.id)
       return session
@@ -50,6 +52,7 @@ export function createClaudeCodeDriver(cfg: Config, db: DatabaseSync): Driver {
 
     continue(session, message) {
       if (tmuxAlive(session.tmux_name)) throw new Error(`session ${session.id} still running`)
+      if (!session.claude_session_id) throw new Error(`session ${session.id} has no codex thread id yet`)
       const subject = db.prepare('SELECT * FROM subjects WHERE id = ?').get(session.subject_id) as
         | SubjectRow
         | undefined
@@ -75,13 +78,17 @@ export function createClaudeCodeDriver(cfg: Config, db: DatabaseSync): Driver {
     },
 
     parseLine(msg) {
-      if (msg.type !== 'result') return null
-      return {
-        kind: 'result',
-        status: msg.is_error ? 'error' : 'completed',
-        result: msg.result ?? null,
-        usage: msg.usage ?? null,
+      if (msg.type === 'thread.started' && msg.thread_id) return { kind: 'session_id', id: msg.thread_id }
+      if (msg.type === 'item.completed' && msg.item?.type === 'agent_message' && msg.item.text) {
+        return { kind: 'message', text: msg.item.text }
       }
+      if (msg.type === 'turn.completed') {
+        return { kind: 'result', status: 'completed', result: null, usage: msg.usage ?? null }
+      }
+      if (msg.type === 'turn.failed') {
+        return { kind: 'result', status: 'error', result: msg.error?.message ?? null, usage: null }
+      }
+      return null
     },
   }
 }

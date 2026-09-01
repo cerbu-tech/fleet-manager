@@ -5,28 +5,42 @@ headless [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions 
 keeps all state in SQLite, and escalates every irreversible decision to a human —
 entirely on existing subscriptions (Claude / ChatGPT OAuth), no pay-per-token API keys.
 
-**Status: early (M0).** One subject at a time, closely supervised: every action the
-brain proposes requires explicit approval. Autonomy with a declarative policy engine,
-a Codex driver, proactive proposals and a mobile bridge come in later milestones.
+**Status: M1 (gated autonomy).** A declarative policy auto-approves routine actions —
+worker spawns within budget, artifact publishes to allowlisted repos — and escalates
+everything else (closure, clarifications, protected branches, anything new) to a
+human. Proactive proposals and a mobile bridge come in later milestones.
 
 ## How it works
 
 - **Brain** — one Claude Agent SDK session per subject decides *what* to do next
-  (`spawn_worker`, `report_event`, `request_decision`). It never executes anything
-  itself: requests become pending decisions.
+  (`spawn_worker`, `publish_artifact`, `report_event`, `request_decision`). It never
+  executes anything itself: every request becomes a decision row.
+- **Policy** — declarative rules from `config.yaml` (daily session/token budget,
+  protected branches, per-subject repo allowlist). Allowed requests are auto-approved
+  at the next scheduler tick — through the same path a human approval takes — and
+  recorded with `resolved_by = 'policy'`; the rest stay pending for a human.
 - **Scheduler** — deterministic loop that owns the limits (active subjects, stall
-  detection) and executes approved decisions.
-- **Driver** — runs workers as `claude -p --session-id <uuid> --output-format stream-json`
-  inside tmux, one git worktree per session; follow-ups resume the same session.
-- **API + dashboard** — HTTP API (static bearer token, explicit bind address) with a
-  read-only dashboard (SSE) and a thin `fleet` CLI on top of it.
+  detection, publish queue) and executes approved decisions.
+- **Drivers** — `claude-code` runs workers as `claude -p --session-id <uuid>
+  --output-format stream-json`, `codex` runs `codex exec --json`; both inside tmux,
+  one git worktree per session; follow-ups resume the same agent session.
+- **Artifacts** — `publish_artifact` pushes a file from the worker's worktree as a
+  new branch on the configured hub and opens a PR (retried automatically while the
+  destination is offline). **Subject closure in M1** = artifact PR open + the
+  `close_subject` decision approved in the dashboard; correlating with the actual
+  merge comes with the GitHub connector (M2).
+- **API + dashboard** — HTTP API (static bearer token, explicit bind address); the
+  dashboard shows subjects + live timeline (SSE) and lets you approve/deny pending
+  decisions; a thin `fleet` CLI sits on the same API.
 
 ## Requirements
 
 - Linux host for the manager daemon (systemd user unit provided; other OSes are
   documented targets only). macOS works fine for development.
-- Node.js >= 24, tmux, git
+- Node.js >= 24, tmux, git, gitleaks
 - Claude Code CLI, logged in (`claude auth status` is checked at boot)
+- Optional: Codex CLI (`codex`) for the codex driver; `gh` for opening artifact PRs
+  on GitHub hubs
 
 ## Quick start
 

@@ -3,34 +3,54 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Config } from './config.js'
 import { addEvent, getSubject, setSubjectStatus, type DecisionRow, type SessionRow, type SubjectRow } from './db.js'
 import { brainTurn, NEW_SUBJECT_MESSAGE } from './brain.js'
-import { ensureClone, sessionJsonl, tmuxAlive } from '../drivers/claude-code.js'
+import { evaluatePolicy } from './policy.js'
+import { enqueuePublish, processPublishes } from './publish.js'
+import { ensureClone, sessionJsonl, tmuxAlive } from '../drivers/workspace.js'
 import type { Driver } from '../drivers/driver.js'
 
 // The scheduler owns the limits (M0.2): the brain requests, this loop decides.
-// All state lives in SQLite; the in-memory maps below are just tail offsets.
+// M1.1: every brain request still becomes a decisions row; at each tick the policy
+// judges the pending ones and auto-resolves what it allows — through the exact same
+// resolveDecision path a human uses. Everything else stays pending (escalated).
+// All state lives in SQLite; the in-memory maps below are just stream-tail state.
 
 export interface Scheduler {
   tick(): void
   reconcile(): void
-  resolveDecision(id: string, approve: boolean, note?: string): DecisionRow
+  resolveDecision(id: string, approve: boolean, note?: string, resolvedBy?: 'human' | 'policy'): DecisionRow
   start(): void
   stop(): void
 }
 
-export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, brain = brainTurn): Scheduler {
+export function createScheduler(
+  cfg: Config,
+  db: DatabaseSync,
+  drivers: Record<string, Driver>,
+  brain = brainTurn,
+): Scheduler {
   const offsets = new Map<string, number>()
+  const lastMessage = new Map<string, string>()
   const stalled = new Set<string>()
   let timer: NodeJS.Timeout | undefined
 
+  const driverFor = (session: SessionRow): Driver => {
+    const d = drivers[session.driver]
+    if (!d) throw new Error(`no driver registered for '${session.driver}'`)
+    return d
+  }
+
   const runningSessions = () =>
     db.prepare("SELECT * FROM sessions WHERE status = 'running'").all() as unknown as SessionRow[]
+
+  const pendingDecisions = () =>
+    db.prepare("SELECT * FROM decisions WHERE status = 'pending' ORDER BY created_at").all() as unknown as DecisionRow[]
 
   const pendingCount = (subjectId: string) =>
     (db.prepare("SELECT COUNT(*) AS n FROM decisions WHERE subject_id = ? AND status = 'pending'").get(subjectId) as any)
       .n as number
 
-  // Reads new jsonl bytes; on the stream's `result` message persists usage and
-  // hands the outcome to the brain. Termination = result message (M0.3).
+  // Reads new jsonl bytes and feeds each line to the session's driver (formats
+  // differ per agent CLI). Termination = the driver's 'result' line (M0.3).
   function pollSession(session: SessionRow): void {
     const subject = getSubject(db, session.subject_id)
     if (!subject) return
@@ -46,6 +66,7 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
     const chunk = buf.toString('utf8')
     const consumed = chunk.lastIndexOf('\n') + 1
     offsets.set(session.id, offset + Buffer.byteLength(chunk.slice(0, consumed)))
+    const driver = driverFor(session)
     for (const line of chunk.slice(0, consumed).split('\n')) {
       if (!line.trim()) continue
       let msg: any
@@ -54,23 +75,38 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
       } catch {
         continue
       }
-      if (msg.type !== 'result') continue
-      const status = msg.is_error ? 'error' : 'completed'
+      const parsed = driver.parseLine(msg)
+      if (!parsed) continue
+      if (parsed.kind === 'session_id') {
+        db.prepare('UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?').run(
+          parsed.id,
+          new Date().toISOString(),
+          session.id,
+        )
+        continue
+      }
+      if (parsed.kind === 'message') {
+        lastMessage.set(session.id, parsed.text)
+        continue
+      }
+      const status = parsed.status === 'error' ? 'error' : 'completed'
+      const report = parsed.result ?? lastMessage.get(session.id) ?? ''
       db.prepare('UPDATE sessions SET status = ?, usage = ?, updated_at = ? WHERE id = ?').run(
         status,
-        JSON.stringify(msg.usage ?? null),
+        JSON.stringify(parsed.usage ?? null),
         new Date().toISOString(),
         session.id,
       )
       const files = driver.artifacts(session)
-      addEvent(db, subject.id, 'session_result', { status, result: msg.result ?? null, usage: msg.usage ?? null, files }, session.id)
+      addEvent(db, subject.id, 'session_result', { status, result: report || null, usage: parsed.usage ?? null, files }, session.id)
       void brain(
         cfg,
         db,
         subject.id,
         `Worker session finished (${status}). Changed files: ${files.join(', ') || 'none'}.\n` +
-          `Worker report:\n${String(msg.result ?? '').slice(0, 2000)}\n` +
-          `Decide the next step: another spawn_worker, or request_decision('close_subject') if the goal is met.`,
+          `Worker report:\n${report.slice(0, 2000)}\n` +
+          `Decide the next step: another spawn_worker, publish_artifact for the deliverable, ` +
+          `or request_decision('close_subject') if the goal is met.`,
       )
       return
     }
@@ -116,8 +152,21 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
     void brain(cfg, db, next.id, NEW_SUBJECT_MESSAGE)
   }
 
-  return {
+  const scheduler: Scheduler = {
     tick() {
+      for (const d of pendingDecisions()) {
+        const subject = getSubject(db, d.subject_id)
+        if (!subject) continue
+        let payload: Record<string, unknown> = {}
+        try {
+          payload = JSON.parse(d.payload)
+        } catch {
+          // unparsable payload stays escalated
+        }
+        const v = evaluatePolicy(cfg, db, subject, d.type, payload)
+        if (v.verdict === 'auto') scheduler.resolveDecision(d.id, true, `policy:auto ${v.reason}`, 'policy')
+      }
+      processPublishes(cfg, db)
       activateNext()
       for (const s of runningSessions()) {
         pollSession(s)
@@ -161,17 +210,23 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
       }
     },
 
-    resolveDecision(id, approve, note) {
+    resolveDecision(id, approve, note, resolvedBy = 'human') {
       const decision = db.prepare('SELECT * FROM decisions WHERE id = ?').get(id) as unknown as DecisionRow | undefined
       if (!decision) throw new Error(`decision ${id} not found`)
       if (decision.status !== 'pending') throw new Error(`decision ${id} already ${decision.status}`)
-      db.prepare("UPDATE decisions SET status = ?, note = ?, resolved_at = ? WHERE id = ?").run(
+      db.prepare('UPDATE decisions SET status = ?, note = ?, resolved_by = ?, resolved_at = ? WHERE id = ?').run(
         approve ? 'approved' : 'denied',
         note ?? null,
+        resolvedBy,
         new Date().toISOString(),
         id,
       )
-      addEvent(db, decision.subject_id, 'decision_resolved', { decision_id: id, approved: approve, note: note ?? null })
+      addEvent(db, decision.subject_id, 'decision_resolved', {
+        decision_id: id,
+        approved: approve,
+        resolved_by: resolvedBy,
+        note: note ?? null,
+      })
 
       const subject = getSubject(db, decision.subject_id)!
       if (subject.status === 'awaiting_decision' && pendingCount(subject.id) === 0) {
@@ -183,12 +238,22 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
         return db.prepare('SELECT * FROM decisions WHERE id = ?').get(id) as unknown as DecisionRow
       }
 
+      const payload = JSON.parse(decision.payload) as any
       if (decision.type === 'spawn_worker') {
         try {
-          driver.start(getSubject(db, subject.id)!, (JSON.parse(decision.payload) as any).prompt)
+          const name = payload.agent === 'codex' ? 'codex' : 'claude-code'
+          const driver = drivers[name]
+          if (!driver) throw new Error(`no driver registered for '${name}'`)
+          driver.start(getSubject(db, subject.id)!, payload.prompt)
         } catch (err) {
           addEvent(db, subject.id, 'error', { message: `worker start failed: ${String(err)}` })
           void brain(cfg, db, subject.id, `Worker start failed: ${String(err)}. Decide the next step.`)
+        }
+      } else if (decision.type === 'publish_artifact') {
+        const row = enqueuePublish(cfg, db, getSubject(db, subject.id)!, payload)
+        if (!row) {
+          addEvent(db, subject.id, 'error', { message: `publish failed: ${payload.path} not found in any session worktree` })
+          void brain(cfg, db, subject.id, `Publish failed: file '${payload.path}' not found in any worker worktree. Decide the next step.`)
         }
       } else if (decision.type === 'close_subject') {
         setSubjectStatus(db, subject.id, 'closing')
@@ -196,7 +261,8 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
           new Date().toISOString(),
           subject.id,
         )
-        driver.cleanup(getSubject(db, subject.id)!)
+        const anyDriver = Object.values(drivers)[0]
+        anyDriver.cleanup(getSubject(db, subject.id)!)
         setSubjectStatus(db, subject.id, 'closed')
       } else {
         void brain(cfg, db, subject.id, `Decision approved (${decision.type}): ${decision.question}. Note: ${note ?? 'none'}.`)
@@ -211,4 +277,5 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
       if (timer) clearInterval(timer)
     },
   }
+  return scheduler
 }

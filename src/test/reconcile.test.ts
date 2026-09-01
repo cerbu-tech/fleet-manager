@@ -21,7 +21,13 @@ const noopDriver: Driver = {
   artifacts: () => [],
   stop: () => {},
   cleanup: () => {},
+  parseLine: (msg) =>
+    msg.type === 'result'
+      ? { kind: 'result', status: msg.is_error ? 'error' : 'completed', result: msg.result ?? null, usage: msg.usage ?? null }
+      : null,
 }
+
+const drivers = { 'claude-code': noopDriver }
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'fleet-test-'))
@@ -31,6 +37,8 @@ function setup() {
     workdir: join(dir, 'workdir'),
     api: { host: '127.0.0.1', port: 0, token: 't' },
     scheduler: { max_active_subjects: 1, tick_seconds: 5, stall_minutes: 15 },
+    policy: { budget: { sessions_per_day: 50, tokens_per_day: 2_000_000 }, protected_branches: ['main', 'master'] },
+    artifacts: { hub: '' },
   }
   const ts = new Date().toISOString()
   db.prepare(
@@ -53,7 +61,7 @@ test('reconcile: running session without tmux becomes failed', () => {
   db.prepare(
     "INSERT INTO sessions (id, subject_id, driver, claude_session_id, tmux_name, created_at, updated_at) VALUES ('sess1', 'subj1', 'claude-code', 'sess1', 'fleet-does-not-exist', ?, ?)",
   ).run(ts, ts)
-  createScheduler(cfg, db, noopDriver, noopBrain).reconcile()
+  createScheduler(cfg, db, drivers, noopBrain).reconcile()
   const session = db.prepare('SELECT status FROM sessions WHERE id = ?').get('sess1') as any
   assert.equal(session.status, 'failed')
   const lost = db.prepare("SELECT * FROM events WHERE type = 'session_lost'").all()
@@ -75,7 +83,7 @@ test('reconcile: running session with live tmux is re-adopted', (t) => {
     db.prepare(
       "INSERT INTO sessions (id, subject_id, driver, claude_session_id, tmux_name, created_at, updated_at) VALUES ('sess2', 'subj1', 'claude-code', 'sess2', ?, ?, ?)",
     ).run(name, ts, ts)
-    createScheduler(cfg, db, noopDriver, noopBrain).reconcile()
+    createScheduler(cfg, db, drivers, noopBrain).reconcile()
     const session = db.prepare('SELECT status FROM sessions WHERE id = ?').get('sess2') as any
     assert.equal(session.status, 'running')
     const readopted = db.prepare("SELECT * FROM events WHERE type = 'session_readopted'").all()
@@ -100,7 +108,7 @@ test('reconcile: finished worker (dead tmux, result in jsonl) is completed with 
   // stale output (older than the stall window) → drained, not re-adopted
   const old = new Date(Date.now() - 20 * 60_000)
   utimesSync(join(sessionsDir, 'sess3.jsonl'), old, old)
-  createScheduler(cfg, db, noopDriver, noopBrain).reconcile()
+  createScheduler(cfg, db, drivers, noopBrain).reconcile()
   const session = db.prepare('SELECT status, usage FROM sessions WHERE id = ?').get('sess3') as any
   assert.equal(session.status, 'completed')
   assert.match(session.usage, /output_tokens/)
@@ -115,7 +123,7 @@ test('reconcile: dead tmux but fresh jsonl output is re-adopted (claude leaves i
   const sessionsDir = join(cfg.workdir, 'subj1', 'sessions')
   execFileSync('mkdir', ['-p', sessionsDir])
   writeFileSync(join(sessionsDir, 'sess4.jsonl'), JSON.stringify({ type: 'system' }) + '\n')
-  createScheduler(cfg, db, noopDriver, noopBrain).reconcile()
+  createScheduler(cfg, db, drivers, noopBrain).reconcile()
   const session = db.prepare('SELECT status FROM sessions WHERE id = ?').get('sess4') as any
   assert.equal(session.status, 'running')
   const readopted = db.prepare("SELECT * FROM events WHERE type = 'session_readopted'").all()
@@ -133,7 +141,7 @@ test('tick: running session with output older than stall window raises stall eve
   writeFileSync(join(sessionsDir, 'sess5.jsonl'), JSON.stringify({ type: 'system' }) + '\n')
   const old = new Date(Date.now() - 20 * 60_000)
   utimesSync(join(sessionsDir, 'sess5.jsonl'), old, old)
-  createScheduler(cfg, db, noopDriver, noopBrain).tick()
+  createScheduler(cfg, db, drivers, noopBrain).tick()
   const stallEvents = db.prepare("SELECT * FROM events WHERE type = 'stall'").all()
   assert.equal(stallEvents.length, 1)
 })
@@ -145,7 +153,7 @@ test('scheduler activates queued subject only under the active limit', () => {
     "INSERT INTO subjects (id, title, goal, repo, status, created_at, updated_at) VALUES ('subj2', 't2', 'g2', '/tmp/x', 'queued', ?, ?)",
   ).run(ts, ts)
   // subj1 is active and max_active_subjects=1 → subj2 must stay queued
-  createScheduler(cfg, db, noopDriver, noopBrain).tick()
+  createScheduler(cfg, db, drivers, noopBrain).tick()
   const s2 = db.prepare('SELECT status FROM subjects WHERE id = ?').get('subj2') as any
   assert.equal(s2.status, 'queued')
 })

@@ -14,3 +14,12 @@ scheduler:
   max_active_subjects: 1   # hard limit owned by the scheduler; the brain requests, the scheduler decides
   tick_seconds: 5
   stall_minutes: 15        # no worker output for this long → stall event escalated to the brain
+
+policy:
+  budget:
+    sessions_per_day: 50       # worker sessions per UTC day, all subjects combined; over budget → spawn escalates
+    tokens_per_day: 2000000    # input+output tokens per UTC day, summed from persisted session usage
+  protected_branches: [main, master]   # a publish targeting these branches escalates instead of running
+
+artifacts:
+  hub: ""                  # git URL artifacts are published to (branch + PR); empty = the subject repo itself

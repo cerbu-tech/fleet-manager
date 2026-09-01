@@ -7,15 +7,22 @@ import { subjectDir } from '../drivers/claude-code.js'
 
 const SYSTEM = `You are the brain of fleet-manager for exactly one subject (a unit of work).
 You decide WHAT happens next; you never execute anything yourself. Every request you
-make becomes a pending decision that a human must approve before it runs.
+make becomes a decision row; a declarative policy auto-approves routine ones (worker
+spawns within budget, artifact publishes to allowlisted repos) and escalates the rest
+to a human.
 
 Tools:
-- spawn_worker(prompt): request a headless coding-agent session. The worker starts
-  inside a fresh checkout (git worktree) of the subject repo — its working directory
-  IS the repo. The prompt must be fully self-contained and use paths relative to the
-  working directory; never reference the original repo location.
+- spawn_worker(prompt, agent?): request a headless coding-agent session ('claude'
+  default, or 'codex'). The worker starts inside a fresh checkout (git worktree) of
+  the subject repo — its working directory IS the repo. The prompt must be fully
+  self-contained and use paths relative to the working directory; never reference
+  the original repo location.
+- publish_artifact(path, title): publish a file from the worker's working directory
+  (path relative to it) as a branch + PR on the artifact hub. PRs are reversible, so
+  this normally runs without human approval. Publish the deliverable BEFORE
+  requesting close_subject — M1 closure = artifact PR open + approved close decision.
 - request_decision(type, question): 'close_subject' when the goal is met (or cannot be),
-  'clarification' when you need input from the human.
+  'clarification' when you need input from the human. Both always escalate.
 - report_event(message): log a short progress note.
 
 Be economical: one tool call per step, short reasoning, no repeated requests while a
@@ -41,10 +48,22 @@ async function runTurn(cfg: Config, db: DatabaseSync, subjectId: string, message
     tools: [
       tool(
         'spawn_worker',
-        'Request a coding-agent worker session (requires human approval)',
-        { prompt: z.string() },
-        async ({ prompt }) => {
-          const d = addDecision(db, subjectId, 'spawn_worker', `Start worker: ${prompt.slice(0, 200)}`, { prompt })
+        'Request a coding-agent worker session (auto-approved within budget)',
+        { prompt: z.string(), agent: z.enum(['claude', 'codex']).optional() },
+        async ({ prompt, agent }) => {
+          const d = addDecision(db, subjectId, 'spawn_worker', `Start ${agent ?? 'claude'} worker: ${prompt.slice(0, 200)}`, {
+            prompt,
+            ...(agent ? { agent } : {}),
+          })
+          return { content: [{ type: 'text', text: `decision ${d.id} pending approval` }] }
+        },
+      ),
+      tool(
+        'publish_artifact',
+        'Publish a file from the worker workspace as branch + PR on the artifact hub',
+        { path: z.string(), title: z.string() },
+        async ({ path, title }) => {
+          const d = addDecision(db, subjectId, 'publish_artifact', `Publish ${path}: ${title}`, { path, title })
           return { content: [{ type: 'text', text: `decision ${d.id} pending approval` }] }
         },
       ),
@@ -71,7 +90,12 @@ async function runTurn(cfg: Config, db: DatabaseSync, subjectId: string, message
         subject.skill_hints ? `\nSkill hints: ${subject.skill_hints}` : ''
       }`,
       mcpServers: { fleet: server },
-      allowedTools: ['mcp__fleet__spawn_worker', 'mcp__fleet__request_decision', 'mcp__fleet__report_event'],
+      allowedTools: [
+        'mcp__fleet__spawn_worker',
+        'mcp__fleet__publish_artifact',
+        'mcp__fleet__request_decision',
+        'mcp__fleet__report_event',
+      ],
       maxTurns: 8,
       cwd: subjectDir(cfg, subjectId),
       ...(subject.brain_session_id ? { resume: subject.brain_session_id } : {}),

@@ -1,5 +1,6 @@
-// Read-only dashboard (M0.5): subjects + timeline, live via SSE. The token is
-// pasted once and kept in localStorage — never in the URL.
+// Dashboard (M0.5 + M1.3): subjects + timeline live via SSE, plus pending
+// decisions with approve/deny through the existing API. The token is pasted
+// once and kept in localStorage — never in the URL.
 export const DASHBOARD_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -26,6 +27,12 @@ export const DASHBOARD_HTML = `<!doctype html>
   .event .type { color:var(--accent); font-weight:600; margin-right:8px; }
   pre { white-space:pre-wrap; margin:4px 0 0; font-size:12px; color:var(--muted); }
   input { background:var(--bg); color:var(--fg); border:1px solid var(--line); padding:4px 8px; border-radius:4px; }
+  #pending { border-bottom:1px solid var(--line); padding:8px 20px; }
+  #pending:empty { display:none; }
+  .decision { display:flex; gap:10px; align-items:center; padding:6px 0; }
+  .decision .q { flex:1; }
+  button { background:var(--bg); color:var(--fg); border:1px solid var(--line); padding:4px 10px; border-radius:4px; cursor:pointer; }
+  button.ok { border-color:var(--accent); color:var(--accent); }
 </style>
 </head>
 <body>
@@ -34,6 +41,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <input id="token" type="password" placeholder="API token" size="28">
   <span id="state" class="status"></span>
 </header>
+<div id="pending"></div>
 <main>
   <div id="subjects"></div>
   <div id="timeline"><p class="status">Select a subject.</p></div>
@@ -55,8 +63,25 @@ async function load() {
       '<div class="subject" data-id="' + s.id + '"><div>' + esc(s.title) + '</div><div class="status">' + s.status + '</div></div>'
     ).join('')
     for (const el of document.querySelectorAll('.subject')) el.addEventListener('click', () => show(el.dataset.id))
+    const pending = await api('/api/decisions?status=pending')
+    $('pending').innerHTML = pending.map((d) =>
+      '<div class="decision"><span class="status">' + esc(d.type) + '</span><span class="q">' + esc(d.question) + '</span>' +
+      '<button class="ok" data-id="' + d.id + '" data-act="approve">Approve</button>' +
+      '<button data-id="' + d.id + '" data-act="deny">Deny</button></div>'
+    ).join('')
+    for (const el of document.querySelectorAll('#pending button')) el.addEventListener('click', () => resolve(el.dataset.id, el.dataset.act))
     if (current) show(current)
   } catch (e) { $('state').textContent = 'auth failed — paste token' }
+}
+async function resolve(id, act) {
+  const note = prompt(act + ' — optional note:')
+  if (note === null) return
+  await fetch('/api/decisions/' + id + '/' + act, {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + token(), 'content-type': 'application/json' },
+    body: JSON.stringify(note ? { note } : {}),
+  })
+  load()
 }
 async function show(id) {
   current = id

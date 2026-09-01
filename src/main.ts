@@ -4,6 +4,7 @@ import { loadConfig } from './core/config.js'
 import { openDb } from './core/db.js'
 import { createScheduler } from './core/scheduler.js'
 import { createClaudeCodeDriver } from './drivers/claude-code.js'
+import { createCodexDriver } from './drivers/codex.js'
 import { startServer } from './web/server.js'
 
 // Boot health-check (Spike 0 lesson): CLI auth is separate from the desktop app —
@@ -23,10 +24,16 @@ function checkClaudeAuth(): void {
 
 const cfg = loadConfig(process.argv[2])
 checkClaudeAuth()
+// Informative only — the codex driver is optional; a spawn with agent=codex fails loudly anyway.
+try {
+  console.log(`codex CLI: ${execFileSync('codex', ['--version'], { encoding: 'utf8', timeout: 15_000 }).trim()}`)
+} catch {
+  console.log('codex CLI: not found — codex driver unavailable')
+}
 mkdirSync(cfg.workdir, { recursive: true })
 const db = openDb(cfg.db)
-const driver = createClaudeCodeDriver(cfg, db)
-const scheduler = createScheduler(cfg, db, driver)
+const drivers = { 'claude-code': createClaudeCodeDriver(cfg, db), codex: createCodexDriver(cfg, db) }
+const scheduler = createScheduler(cfg, db, drivers)
 scheduler.reconcile()
 scheduler.start()
 const server = startServer(cfg, db, scheduler)

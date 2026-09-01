@@ -37,8 +37,23 @@ export interface DecisionRow {
   payload: string
   status: 'pending' | 'approved' | 'denied'
   note: string | null
+  resolved_by: 'human' | 'policy' | null
   created_at: string
   resolved_at: string | null
+}
+
+export interface PublishRow {
+  id: string
+  subject_id: string
+  path: string
+  title: string
+  repo: string
+  branch: string
+  status: 'pending' | 'done' | 'failed'
+  attempts: number
+  last_error: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface EventRow {
@@ -89,8 +104,22 @@ export function openDb(path: string): DatabaseSync {
       payload TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','denied')),
       note TEXT,
+      resolved_by TEXT,
       created_at TEXT NOT NULL,
       resolved_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS publishes (
+      id TEXT PRIMARY KEY,
+      subject_id TEXT NOT NULL REFERENCES subjects(id),
+      path TEXT NOT NULL,
+      title TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','done','failed')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +130,9 @@ export function openDb(path: string): DatabaseSync {
       ts TEXT NOT NULL
     );
   `)
+  // M0 databases predate resolved_by — add it in place, nothing is lost.
+  const cols = db.prepare('PRAGMA table_info(decisions)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'resolved_by')) db.exec('ALTER TABLE decisions ADD COLUMN resolved_by TEXT')
   return db
 }
 
