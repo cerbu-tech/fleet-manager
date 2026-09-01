@@ -30,7 +30,12 @@ export function evaluatePolicy(
     for (const r of rows) {
       try {
         const u = JSON.parse(r.usage ?? 'null')
-        tokens += (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0)
+        // Sum every *_tokens field — field names differ per driver (claude:
+        // cache_creation_input_tokens, codex: cached_input_tokens) and a safety
+        // cap should over-count rather than silently never trigger.
+        for (const [k, v] of Object.entries(u ?? {})) {
+          if (k.endsWith('_tokens') && typeof v === 'number') tokens += v
+        }
       } catch {
         // unparsable usage counts as zero
       }

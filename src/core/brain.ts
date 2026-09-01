@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Config } from './config.js'
 import { addDecision, addEvent, getSubject } from './db.js'
-import { subjectDir } from '../drivers/claude-code.js'
+import { subjectDir } from '../drivers/workspace.js'
 
 const SYSTEM = `You are the brain of fleet-manager for exactly one subject (a unit of work).
 You decide WHAT happens next; you never execute anything yourself. Every request you

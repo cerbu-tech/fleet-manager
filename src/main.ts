@@ -24,12 +24,6 @@ function checkClaudeAuth(): void {
 
 const cfg = loadConfig(process.argv[2])
 checkClaudeAuth()
-// Informative only — the codex driver is optional; a spawn with agent=codex fails loudly anyway.
-try {
-  console.log(`codex CLI: ${execFileSync('codex', ['--version'], { encoding: 'utf8', timeout: 15_000 }).trim()}`)
-} catch {
-  console.log('codex CLI: not found — codex driver unavailable')
-}
 mkdirSync(cfg.workdir, { recursive: true })
 const db = openDb(cfg.db)
 const drivers = { 'claude-code': createClaudeCodeDriver(cfg, db), codex: createCodexDriver(cfg, db) }

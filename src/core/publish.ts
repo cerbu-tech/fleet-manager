@@ -88,8 +88,8 @@ function executePublish(cfg: Config, p: PublishRow): string | null {
   cpSync(join(stagingDir(cfg, p.id), 'file', p.path), dest)
   git(['add', '-A'], clone)
   git(['commit', '-m', `fleet: ${p.title}`], clone)
-  // --force keeps retries idempotent — fleet/artifact-* branches belong to the manager.
-  git(['push', '--force', 'origin', p.branch], clone)
+  // --force keeps retries idempotent, but only on the manager's own fleet/ branches.
+  git(['push', ...(p.branch.startsWith('fleet/') ? ['--force'] : []), 'origin', p.branch], clone)
 
   const gh = p.repo.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/)
   if (!gh) return null // generic git hub: branch pushed, no PR surface

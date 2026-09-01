@@ -18,7 +18,7 @@ scheduler:
 policy:
   budget:
     sessions_per_day: 50       # worker sessions per UTC day, all subjects combined; over budget → spawn escalates
-    tokens_per_day: 2000000    # input+output tokens per UTC day, summed from persisted session usage
+    tokens_per_day: 20000000   # all *_tokens per UTC day (cache included) from persisted session usage — a safety cap, not accounting
   protected_branches: [main, master]   # a publish targeting these branches escalates instead of running
 
 artifacts:

@@ -16,8 +16,6 @@ import {
   tmuxAlive,
 } from './workspace.js'
 
-export { ensureClone, sessionJsonl, subjectDir, tmuxAlive } from './workspace.js'
-
 export function createClaudeCodeDriver(cfg: Config, db: DatabaseSync): Driver {
   const runHeadless = (subject: SubjectRow, session: SessionRow, prompt: string, resume: boolean) => {
     const dir = join(subjectDir(cfg, subject.id), 'sessions')

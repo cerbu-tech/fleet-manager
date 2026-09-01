@@ -156,7 +156,9 @@ export function createScheduler(
     tick() {
       for (const d of pendingDecisions()) {
         const subject = getSubject(db, d.subject_id)
-        if (!subject) continue
+        // Escalation is durable: only live subjects are re-judged, so an over-budget
+        // escalation cannot silently self-approve after the UTC day rolls over.
+        if (!subject || !['active', 'awaiting_decision'].includes(subject.status)) continue
         let payload: Record<string, unknown> = {}
         try {
           payload = JSON.parse(d.payload)
@@ -164,7 +166,12 @@ export function createScheduler(
           // unparsable payload stays escalated
         }
         const v = evaluatePolicy(cfg, db, subject, d.type, payload)
-        if (v.verdict === 'auto') scheduler.resolveDecision(d.id, true, `policy:auto ${v.reason}`, 'policy')
+        if (v.verdict !== 'auto') continue
+        try {
+          scheduler.resolveDecision(d.id, true, `policy:auto ${v.reason}`, 'policy')
+        } catch (err) {
+          addEvent(db, d.subject_id, 'error', { message: `auto-resolve failed: ${String(err)}` })
+        }
       }
       processPublishes(cfg, db)
       activateNext()
