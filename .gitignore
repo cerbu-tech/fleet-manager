@@ -1,0 +1,9 @@
+node_modules/
+dist/
+workdir/
+*.db
+*.db-journal
+.env
+.omc/
+spike/
+.DS_Store

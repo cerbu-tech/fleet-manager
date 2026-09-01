@@ -1,0 +1,27 @@
+{
+  "name": "fleet-manager",
+  "version": "0.1.0",
+  "description": "Autonomous manager for coding agents (Claude Code, Codex) — runs subjects in tmux sessions, escalates irreversible decisions, works entirely on existing subscriptions.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "fleet": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "test": "npm run build && node --test \"dist/test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.252",
+    "yaml": "^2.6.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  }
+}

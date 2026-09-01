@@ -1,0 +1,13 @@
+[Unit]
+Description=fleet-manager daemon
+After=network.target
+
+[Service]
+WorkingDirectory=@WORKDIR@
+EnvironmentFile=%h/.config/fleet-manager/env
+ExecStart=/usr/bin/env node dist/main.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

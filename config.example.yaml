@@ -1,0 +1,16 @@
+# fleet-manager configuration — copy to config.yaml and adjust.
+# Secrets do not belong here: set FLEET_API_TOKEN in the environment
+# (systemd EnvironmentFile, or an .env you source manually).
+
+db: ./fleet.db          # SQLite database file
+workdir: ./workdir      # workspaces: <workdir>/<subject-id>/{repo,sessions/<session-id>}
+
+api:
+  host: 127.0.0.1       # bind address: loopback, or your VPN/tailnet IP — never 0.0.0.0
+  port: 7171
+  token: ""             # bearer token for the API; FLEET_API_TOKEN env var overrides this
+
+scheduler:
+  max_active_subjects: 1   # hard limit owned by the scheduler; the brain requests, the scheduler decides
+  tick_seconds: 5
+  stall_minutes: 15        # no worker output for this long → stall event escalated to the brain
