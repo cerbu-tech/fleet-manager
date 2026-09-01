@@ -2,7 +2,7 @@ import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Config } from './config.js'
-import { addDecision, addEvent, getSubject, type SubjectRow } from './db.js'
+import { addDecision, addEvent, getSubject } from './db.js'
 import { subjectDir } from '../drivers/claude-code.js'
 
 const SYSTEM = `You are the brain of fleet-manager for exactly one subject (a unit of work).
@@ -97,6 +97,5 @@ async function runTurn(cfg: Config, db: DatabaseSync, subjectId: string, message
   })
 }
 
-export function newSubjectMessage(subject: SubjectRow): string {
-  return `New subject. Decide the first step toward the goal (usually spawn_worker with a self-contained prompt).`
-}
+export const NEW_SUBJECT_MESSAGE =
+  'New subject. Decide the first step toward the goal (usually spawn_worker with a self-contained prompt).'

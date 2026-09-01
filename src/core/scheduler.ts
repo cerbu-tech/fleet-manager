@@ -2,7 +2,7 @@ import { existsSync, readSync, openSync, closeSync, statSync } from 'node:fs'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Config } from './config.js'
 import { addEvent, getSubject, setSubjectStatus, type DecisionRow, type SessionRow, type SubjectRow } from './db.js'
-import { brainTurn, newSubjectMessage } from './brain.js'
+import { brainTurn, NEW_SUBJECT_MESSAGE } from './brain.js'
 import { ensureClone, sessionJsonl, tmuxAlive } from '../drivers/claude-code.js'
 import type { Driver } from '../drivers/driver.js'
 
@@ -113,7 +113,7 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
       return
     }
     setSubjectStatus(db, next.id, 'active')
-    void brain(cfg, db, next.id, newSubjectMessage(next))
+    void brain(cfg, db, next.id, NEW_SUBJECT_MESSAGE)
   }
 
   return {
@@ -188,6 +188,7 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
           driver.start(getSubject(db, subject.id)!, (JSON.parse(decision.payload) as any).prompt)
         } catch (err) {
           addEvent(db, subject.id, 'error', { message: `worker start failed: ${String(err)}` })
+          void brain(cfg, db, subject.id, `Worker start failed: ${String(err)}. Decide the next step.`)
         }
       } else if (decision.type === 'close_subject') {
         setSubjectStatus(db, subject.id, 'closing')

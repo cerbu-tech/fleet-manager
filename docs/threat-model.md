@@ -24,5 +24,5 @@ To be filled in as milestones land. The honest boundaries, stated up front:
 |---|---|
 | Prompt injection from data sources (M2 connectors) | Source content is data, not instructions; proposals-only (never auto-start); push/PR allowlist; mechanical anchors above |
 | OAuth expiry | First failed spawn is classified `auth_failure` and alerted (M2); boot health-check covers complete absence |
-| Manager restart with sessions in flight | Boot reconciliation against `tmux ls`; sessions never stay phantom-running |
+| Manager restart with sessions in flight | Boot reconciliation: a session is re-adopted when its tmux session is alive or its output file is fresh (claude >= 2.1.252 leaves its tmux pane at boot); otherwise drained once and marked failed. A re-adopted worker that silently died is escalated to the operator within `stall_minutes` |
 | API exposure | Static bearer token from environment; bind only to an explicitly configured address |

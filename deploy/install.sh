@@ -10,6 +10,7 @@ node -e 'process.exit(parseInt(process.versions.node) >= 24 ? 0 : 1)' || { echo 
 command -v tmux >/dev/null || { echo "tmux not found"; exit 1; }
 command -v git >/dev/null || { echo "git not found"; exit 1; }
 command -v claude >/dev/null || { echo "claude CLI not found — install Claude Code and run 'claude auth login'"; exit 1; }
+command -v openssl >/dev/null || { echo "openssl not found (needed to generate the API token)"; exit 1; }
 
 echo "== building"
 npm ci
