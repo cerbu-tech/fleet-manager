@@ -33,7 +33,7 @@ export function loadConfig(path?: string): Config {
     policy: {
       budget: {
         sessions_per_day: raw.policy?.budget?.sessions_per_day ?? 50,
-        tokens_per_day: raw.policy?.budget?.tokens_per_day ?? 2_000_000,
+        tokens_per_day: raw.policy?.budget?.tokens_per_day ?? 20_000_000,
       },
       protected_branches: raw.policy?.protected_branches ?? ['main', 'master'],
     },

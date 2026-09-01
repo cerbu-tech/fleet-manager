@@ -156,8 +156,10 @@ export function createScheduler(
     tick() {
       for (const d of pendingDecisions()) {
         const subject = getSubject(db, d.subject_id)
-        // Escalation is durable: only live subjects are re-judged, so an over-budget
-        // escalation cannot silently self-approve after the UTC day rolls over.
+        // Only live subjects are re-judged: a decision on a closed/failed subject is
+        // never executed (no reviving a cleaned-up workdir). A budget escalation on a
+        // live subject IS re-judged each tick — the budget is a rate limit, not a human
+        // veto, so it self-approves once the UTC day rolls over and capacity returns.
         if (!subject || !['active', 'awaiting_decision'].includes(subject.status)) continue
         let payload: Record<string, unknown> = {}
         try {
