@@ -126,23 +126,37 @@ export function createScheduler(cfg: Config, db: DatabaseSync, driver: Driver, b
       }
     },
 
-    // Boot reconciliation (M0.2): running sessions are re-adopted when their tmux
-    // session still exists; otherwise their jsonl is drained once (the worker may
-    // have finished while the daemon was down) and what remains becomes failed.
+    // Boot reconciliation (M0.2): a running session is re-adopted when its tmux
+    // session still exists OR its jsonl is still fresh — claude >= 2.1.252 leaves
+    // its tmux pane at boot (relaunches detached), so recent output is the honest
+    // liveness signal. Otherwise the jsonl is drained once (the worker may have
+    // finished while the daemon was down) and what remains becomes failed.
     reconcile() {
       for (const s of runningSessions()) {
-        if (tmuxAlive(s.tmux_name)) {
-          addEvent(db, s.subject_id, 'session_readopted', { tmux: s.tmux_name }, s.id)
+        const subject = getSubject(db, s.subject_id)
+        const file = subject ? sessionJsonl(cfg, subject, s.id) : undefined
+        const fresh =
+          file !== undefined &&
+          existsSync(file) &&
+          Date.now() - statSync(file).mtimeMs < cfg.scheduler.stall_minutes * 60_000
+        if (tmuxAlive(s.tmux_name) || fresh) {
+          addEvent(db, s.subject_id, 'session_readopted', { tmux: s.tmux_name, fresh_output: fresh }, s.id)
           continue
         }
         pollSession(s)
-        const fresh = db.prepare('SELECT status FROM sessions WHERE id = ?').get(s.id) as any
-        if (fresh?.status === 'running') {
+        const after = db.prepare('SELECT status FROM sessions WHERE id = ?').get(s.id) as any
+        if (after?.status === 'running') {
           db.prepare("UPDATE sessions SET status = 'failed', updated_at = ? WHERE id = ?").run(
             new Date().toISOString(),
             s.id,
           )
           addEvent(db, s.subject_id, 'session_lost', { tmux: s.tmux_name }, s.id)
+          void brain(
+            cfg,
+            db,
+            s.subject_id,
+            `Worker session ${s.id} was lost (daemon restarted, tmux session gone, no result). Decide the next step.`,
+          )
         }
       }
     },
