@@ -65,6 +65,8 @@ Dashboard: `http://<api.host>:<api.port>/` (read-only; paste the token once).
 
 Workers run on trusted nodes with the credentials already present there. Real
 containment is **mechanical** — branch protection, deploy keys, push/PR allowlists
-(see `docs/threat-model.md`) — not tool restrictions inside the agent. The API binds
-only to the address you configure; keep it on loopback or a private (VPN/overlay)
-interface.
+(see `docs/threat-model.md`) — not tool restrictions inside the agent. Protect `main`
+on every repo the manager touches with **"require a pull request"** (a bare
+protection rule does not stop direct pushes — the exact `gh api` call is in the
+threat model). The API binds only to the address you configure; keep it on loopback
+or a private (VPN/overlay) interface.

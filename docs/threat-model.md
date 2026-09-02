@@ -25,6 +25,25 @@ The honest boundaries, stated up front:
    protected branches. The policy engine failing does NOT expose `main`: the remote
    rejects the push regardless of what the manager or a worker tries.
 
+   **Trap, verified empirically**: a GitHub branch protection rule with no
+   "require a pull request" setting only blocks force-pushes and deletions — a plain
+   `git push origin main` still lands. The setting that actually rejects direct
+   pushes (`GH006 … Changes must be made through a pull request`) is
+   `required_pull_request_reviews`; `required_approving_review_count: 0` keeps the
+   merge itself as the human's approval without demanding a second account. Enable
+   `enforce_admins`: the agents run under the operator's own account.
+
+   ```bash
+   gh api -X PUT repos/OWNER/REPO/branches/main/protection --input - <<'EOF'
+   {"required_status_checks":null,"enforce_admins":true,
+    "required_pull_request_reviews":{"required_approving_review_count":0},
+    "restrictions":null,"allow_force_pushes":false,"allow_deletions":false}
+   EOF
+   ```
+
+   Verify it the same way every time: push a throwaway commit straight to `main` and
+   expect `[remote rejected] … (protected branch hook declined)`.
+
 The negative e2e test (`src/test/publish.test.ts`) exercises layer 1: a scripted
 publish targeting `main` stays a pending decisions row and nothing is pushed. Layer 2
 must be configured per target repo (documented in the README of the target hub);

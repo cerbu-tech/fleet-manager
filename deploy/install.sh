@@ -31,7 +31,8 @@ if [ ! -f "$HOME/.config/fleet-manager/env" ]; then
   echo "   generated $HOME/.config/fleet-manager/env"
 fi
 sed "s|@WORKDIR@|$PWD|g" deploy/fleet-managerd.service > "$HOME/.config/systemd/user/fleet-managerd.service"
-systemctl --user daemon-reload
+# No user bus when installing over ssh/sudo -u: the unit is in place, reload later from a login session.
+systemctl --user daemon-reload || echo "   no user systemd session — run 'loginctl enable-linger $USER', log in again, then: systemctl --user daemon-reload"
 echo "== done. Next:"
 echo "   cp config.example.yaml config.yaml   # and edit"
 echo "   systemctl --user enable --now fleet-managerd"
