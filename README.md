@@ -59,7 +59,29 @@ fleet decisions              # pending decisions
 fleet approve <decision-id>
 ```
 
-Dashboard: `http://<api.host>:<api.port>/` (read-only; paste the token once).
+Dashboard: `http://<api.host>:<api.port>/` — paste the token once; create subjects,
+follow the timeline, approve/deny escalations. Works on a phone over your VPN/overlay.
+
+## Deploy (Linux, always-on host)
+
+`deploy/install.sh` installs a **systemd user unit**. What it assumes, and why:
+
+- Node >= 24 and the agent CLIs must be on the `PATH` of the user running
+  `install.sh` — that PATH is captured into the unit, so a Node installed in your
+  home directory (a tarball under `~/node`, nvm, fnm) works without root.
+- The unit reads `~/.config/fleet-manager/env` (`FLEET_API_TOKEN`, generated on first
+  install; add `FLEET_CONFIG=/path/to/config.yaml` there to keep the real config in a
+  private repo outside the checkout).
+- Run `loginctl enable-linger $USER` once so the service survives logout.
+- Bind `api.host` to your VPN/overlay address (e.g. a Tailscale IP), never `0.0.0.0`.
+
+```bash
+./deploy/install.sh
+echo "FLEET_CONFIG=$HOME/my-config/config.yaml" >> ~/.config/fleet-manager/env
+loginctl enable-linger "$USER"
+systemctl --user enable --now fleet-managerd
+journalctl --user -u fleet-managerd -f
+```
 
 ## Security model (v1)
 

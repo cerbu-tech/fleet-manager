@@ -30,7 +30,7 @@ if [ ! -f "$HOME/.config/fleet-manager/env" ]; then
   umask 022
   echo "   generated $HOME/.config/fleet-manager/env"
 fi
-sed "s|@WORKDIR@|$PWD|g" deploy/fleet-managerd.service > "$HOME/.config/systemd/user/fleet-managerd.service"
+sed -e "s|@WORKDIR@|$PWD|g" -e "s|@PATH@|$PATH|g" deploy/fleet-managerd.service > "$HOME/.config/systemd/user/fleet-managerd.service"
 # No user bus when installing over ssh/sudo -u: the unit is in place, reload later from a login session.
 systemctl --user daemon-reload || echo "   no user systemd session — run 'loginctl enable-linger $USER', log in again, then: systemctl --user daemon-reload"
 echo "== done. Next:"

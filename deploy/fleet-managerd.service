@@ -5,6 +5,8 @@ After=network.target
 [Service]
 WorkingDirectory=@WORKDIR@
 EnvironmentFile=%h/.config/fleet-manager/env
+# PATH captured at install time: whatever passed the prerequisite checks is what runs.
+Environment=PATH=@PATH@
 ExecStart=/usr/bin/env node dist/main.js
 Restart=on-failure
 RestartSec=5

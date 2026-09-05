@@ -1,6 +1,7 @@
-// Dashboard (M0.5 + M1.3): subjects + timeline live via SSE, plus pending
-// decisions with approve/deny through the existing API. The token is pasted
-// once and kept in localStorage — never in the URL.
+// Dashboard (M0.5 + M1.3): subjects + timeline live via SSE, pending decisions
+// with approve/deny, and a new-subject form — all through the existing API, so it
+// is operable from a phone on the tailnet. The token is pasted once and kept in
+// localStorage — never in the URL.
 export const DASHBOARD_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -17,7 +18,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; }
   header h1 { font-size:15px; margin:0; }
   main { display:grid; grid-template-columns: 320px 1fr; gap:0; min-height:calc(100vh - 50px); }
-  #subjects { border-right:1px solid var(--line); }
+  #subjects-col { border-right:1px solid var(--line); }
   .subject { padding:10px 16px; border-bottom:1px solid var(--line); cursor:pointer; }
   .subject:hover { background:color-mix(in srgb, var(--accent) 8%, transparent); }
   .status { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
@@ -33,6 +34,13 @@ export const DASHBOARD_HTML = `<!doctype html>
   .decision .q { flex:1; }
   button { background:var(--bg); color:var(--fg); border:1px solid var(--line); padding:4px 10px; border-radius:4px; cursor:pointer; }
   button.ok { border-color:var(--accent); color:var(--accent); }
+  #new { display:flex; flex-wrap:wrap; gap:6px; padding:8px 16px; border-bottom:1px solid var(--line); }
+  #new input { flex:1 1 140px; min-width:0; }
+  @media (max-width: 700px) {
+    main { grid-template-columns: 1fr; }
+    #subjects-col { border-right:0; border-bottom:1px solid var(--line); }
+    header input { flex:1; }
+  }
 </style>
 </head>
 <body>
@@ -43,7 +51,15 @@ export const DASHBOARD_HTML = `<!doctype html>
 </header>
 <div id="pending"></div>
 <main>
-  <div id="subjects"></div>
+  <div id="subjects-col">
+    <form id="new">
+      <input name="title" placeholder="Title" required>
+      <input name="repo" placeholder="Repo URL (git clone)" required>
+      <input name="goal" placeholder="Goal — what done looks like" required style="flex-basis:100%">
+      <button class="ok" type="submit">New subject</button>
+    </form>
+    <div id="subjects"></div>
+  </div>
   <div id="timeline"><p class="status">Select a subject.</p></div>
 </main>
 <script>
@@ -73,6 +89,16 @@ async function load() {
     if (current) show(current)
   } catch (e) { $('state').textContent = 'auth failed — paste token' }
 }
+$('new').addEventListener('submit', async (ev) => {
+  ev.preventDefault()
+  const f = ev.target
+  const res = await fetch('/api/subjects', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + token(), 'content-type': 'application/json' },
+    body: JSON.stringify(Object.fromEntries(new FormData(f))),
+  })
+  if (res.ok) { f.reset(); load() } else { $('state').textContent = 'create failed: ' + res.status }
+})
 async function resolve(id, act) {
   const note = prompt(act + ' — optional note:')
   if (note === null) return
