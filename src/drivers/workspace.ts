@@ -10,7 +10,9 @@ import type { SessionRow, SubjectRow } from '../core/db.js'
 
 export const sh = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
 
-export const tmux = (...args: string[]) => execFileSync('tmux', args, { encoding: 'utf8' })
+// Dedicated tmux server (-L fleet): started by the daemon, so workers inherit the
+// daemon's environment (auth tokens) instead of whatever user server already runs.
+export const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'fleet', ...args], { encoding: 'utf8' })
 
 export function tmuxAlive(name: string): boolean {
   try {

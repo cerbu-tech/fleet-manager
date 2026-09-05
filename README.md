@@ -74,10 +74,18 @@ follow the timeline, approve/deny escalations. Works on a phone over your VPN/ov
   private repo outside the checkout).
 - Run `loginctl enable-linger $USER` once so the service survives logout.
 - Bind `api.host` to your VPN/overlay address (e.g. a Tailscale IP), never `0.0.0.0`.
+- **Agent auth on the daemon host: use a long-lived token, not the interactive
+  login.** Interactive `claude auth login` credentials are refreshed with rotation —
+  the same account logged in on your laptop invalidates the daemon host's refresh
+  token at the first refresh (observed: credentials wiped at the brain's first turn).
+  Run `claude setup-token` once and put `CLAUDE_CODE_OAUTH_TOKEN=…` in the env file.
+  Workers run in a dedicated tmux server (`tmux -L fleet`) started by the daemon, so
+  they inherit that environment.
 
 ```bash
 ./deploy/install.sh
 echo "FLEET_CONFIG=$HOME/my-config/config.yaml" >> ~/.config/fleet-manager/env
+echo "CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token)" >> ~/.config/fleet-manager/env   # interactive once
 loginctl enable-linger "$USER"
 systemctl --user enable --now fleet-managerd
 journalctl --user -u fleet-managerd -f

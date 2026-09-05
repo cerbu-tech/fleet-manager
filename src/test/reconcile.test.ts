@@ -77,7 +77,7 @@ test('reconcile: running session with live tmux is re-adopted', (t) => {
   }
   const { db, cfg } = setup()
   const name = `fleet-test-${process.pid}`
-  execFileSync('tmux', ['new-session', '-d', '-s', name, 'sleep 30'])
+  execFileSync('tmux', ['-L', 'fleet', 'new-session', '-d', '-s', name, 'sleep 30'])
   try {
     const ts = new Date().toISOString()
     db.prepare(
@@ -89,7 +89,7 @@ test('reconcile: running session with live tmux is re-adopted', (t) => {
     const readopted = db.prepare("SELECT * FROM events WHERE type = 'session_readopted'").all()
     assert.equal(readopted.length, 1)
   } finally {
-    execFileSync('tmux', ['kill-session', '-t', `=${name}`])
+    execFileSync('tmux', ['-L', 'fleet', 'kill-session', '-t', `=${name}`])
   }
 })
 
@@ -164,4 +164,16 @@ test('brain request becomes pending decision and subject awaits it', () => {
   assert.equal(d.status, 'pending')
   const subject = db.prepare('SELECT status FROM subjects WHERE id = ?').get('subj1') as any
   assert.equal(subject.status, 'awaiting_decision')
+})
+
+test('reconcile: active subject with no session and no pending decision gets its brain woken', () => {
+  const { db, cfg } = setup()
+  const turns: string[] = []
+  const spyBrain = async (_c: any, _d: any, id: string, msg: string) => {
+    turns.push(id + ':' + msg.slice(0, 16))
+  }
+  createScheduler(cfg, db, drivers, spyBrain).reconcile()
+  assert.deepEqual(turns, ['subj1:Daemon restarted'])
+  const resumed = db.prepare("SELECT * FROM events WHERE type = 'brain_resumed'").all()
+  assert.equal(resumed.length, 1)
 })

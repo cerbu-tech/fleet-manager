@@ -190,6 +190,19 @@ export function createScheduler(
     // liveness signal. Otherwise the jsonl is drained once (the worker may have
     // finished while the daemon was down) and what remains becomes failed.
     reconcile() {
+      // A live subject with no running session and no pending decision has a dead
+      // brain turn behind it (crash mid-turn, auth failure): wake it, never leave it.
+      const idle = db
+        .prepare(
+          `SELECT id FROM subjects WHERE status = 'active'
+           AND id NOT IN (SELECT subject_id FROM sessions WHERE status = 'running')
+           AND id NOT IN (SELECT subject_id FROM decisions WHERE status = 'pending')`,
+        )
+        .all() as unknown as { id: string }[]
+      for (const s of idle) {
+        addEvent(db, s.id, 'brain_resumed', { reason: 'daemon restarted with no session and no pending decision' })
+        void brain(cfg, db, s.id, 'Daemon restarted; no worker is running and nothing is pending. Decide the next step.')
+      }
       for (const s of runningSessions()) {
         const subject = getSubject(db, s.subject_id)
         const file = subject ? sessionJsonl(cfg, subject, s.id) : undefined
