@@ -33,8 +33,11 @@ decision is still pending.`
 const chains = new Map<string, Promise<void>>()
 
 export function brainTurn(cfg: Config, db: DatabaseSync, subjectId: string, message: string): Promise<void> {
-  const next = (chains.get(subjectId) ?? Promise.resolve()).then(() => runTurn(cfg, db, subjectId, message))
-  chains.set(subjectId, next.catch(() => {}))
+  const next = (chains.get(subjectId) ?? Promise.resolve())
+    .then(() => runTurn(cfg, db, subjectId, message))
+    // A failed turn (auth, network, SDK) must never be silent: it is the subject's only brain.
+    .catch((err) => addEvent(db, subjectId, 'brain_error', { message: String(err).slice(0, 500) }))
+  chains.set(subjectId, next)
   return next
 }
 
