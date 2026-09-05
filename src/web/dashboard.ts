@@ -15,7 +15,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   }
   body { margin:0; background:var(--bg); color:var(--fg);
          font:14px/1.5 ui-sans-serif, system-ui, sans-serif; }
-  header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; }
+  header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
   header h1 { font-size:15px; margin:0; }
   main { display:grid; grid-template-columns: 320px 1fr; gap:0; min-height:calc(100vh - 50px); }
   #subjects-col { border-right:1px solid var(--line); }
